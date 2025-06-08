@@ -1,37 +1,58 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog
-import libfptr10
+import webbrowser
 from libfptr10 import IFptr
 import os
+import re
 
 class KKTPrinterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Печать на ККТ АТОЛ")
-        self.root.geometry("600x700")
-        self.root.resizable(False, False)
+        self.root.geometry("650x800")
+        self.root.minsize(650, 800)
+        
+        # Настройки по умолчанию
+        self.ip_address = ""
+        self.ip_port = ""
         
         self.fptr = None
+        
+        # Сначала создаем все виджеты
         self.create_widgets()
-        self.connect_to_kkt()
     
     def create_widgets(self):
-        # Фрейм для подключения
-        connection_frame = ttk.LabelFrame(self.root, text="Подключение к ККТ", padding=10)
+        # Фрейм для настроек подключения
+        settings_frame = ttk.LabelFrame(self.root, text="Настройки подключения", padding=10)
+        settings_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Поле для IP-адреса
+        ttk.Label(settings_frame, text="IP-адрес ККТ:").grid(row=0, column=0, sticky=tk.W)
+        self.ip_address_entry = ttk.Entry(settings_frame)
+        self.ip_address_entry.grid(row=0, column=1, sticky=tk.EW, padx=5)
+        
+        # Поле для порта
+        ttk.Label(settings_frame, text="Порт ККТ:").grid(row=1, column=0, sticky=tk.W)
+        self.ip_port_entry = ttk.Entry(settings_frame)
+        self.ip_port_entry.grid(row=1, column=1, sticky=tk.EW, padx=5)
+        
+        # Кнопка подключения
+        ttk.Button(
+            settings_frame,
+            text="Подключиться",
+            command=self.connect_to_kkt
+        ).grid(row=2, column=0, columnspan=2, pady=5)
+        
+        # Фрейм статуса подключения
+        connection_frame = ttk.LabelFrame(self.root, text="Статус подключения", padding=10)
         connection_frame.pack(fill=tk.X, padx=5, pady=5)
         
         self.connection_status = ttk.Label(
             connection_frame, 
-            text="Не подключено", 
-            foreground="red"
+            text="Введите IP и порт ККТ", 
+            foreground="blue"
         )
         self.connection_status.pack(anchor=tk.W)
-        
-        ttk.Button(
-            connection_frame, 
-            text="Переподключиться", 
-            command=self.connect_to_kkt
-        ).pack(pady=5)
         
         # Информация о ККТ
         info_frame = ttk.LabelFrame(self.root, text="Информация о ККТ", padding=10)
@@ -45,7 +66,6 @@ class KKTPrinterApp:
         )
         self.kkt_info_text.pack(fill=tk.X)
         
-        # Вкладки для разных типов печати
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
@@ -68,6 +88,29 @@ class KKTPrinterApp:
         combined_tab = ttk.Frame(notebook)
         notebook.add(combined_tab, text="Текст + QR")
         self.create_combined_tab(combined_tab)
+
+    def validate_ip_port(self):
+        """Проверка корректности IP и порта"""
+        ip = self.ip_address_entry.get().strip()
+        port = self.ip_port_entry.get().strip()
+        
+        # Проверка IP
+        if not re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', ip):
+            messagebox.showerror("Ошибка", "Неверный формат IP-адреса")
+            return False
+        
+        # Проверка порта
+        try:
+            port_num = int(port)
+            if not 1 <= port_num <= 65535:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Ошибка", "Порт должен быть числом от 1 до 65535")
+            return False
+        
+        self.ip_address = ip
+        self.ip_port = port
+        return True
     
     def create_text_tab(self, parent):
         """Создает вкладку для печати текста"""
@@ -173,7 +216,10 @@ class KKTPrinterApp:
         self.image_path_var = tk.StringVar()
         ttk.Label(image_frame, text="Путь к изображению:").pack(anchor=tk.W)
         ttk.Label(image_frame, text="!!! Изображение должно быть черно-белым !!!", foreground="#FF0000").pack(anchor=tk.W)
-        ttk.Label(image_frame, text="(скоро будет добавлена авто преобразование обычного в ЧБ)", foreground="#B6B6B6").pack(anchor=tk.W)
+        tk.Label(image_frame, text="Программу для преобразования фото в ЧБ можно найти в релизах на GitHub", foreground="#C4C4C4").pack(anchor=tk.W)
+        githuburl = tk.Label(image_frame, text="GitHub", foreground="blue")
+        githuburl.pack(anchor=tk.W)
+        githuburl.bind("<Button-1>", lambda e: webbrowser.open_new("https://github.com/Golden20-among1sas20/ATOL-KKT-to-printer/releases"))
         
         path_frame = ttk.Frame(image_frame)
         path_frame.pack(fill=tk.X, pady=5)
@@ -277,7 +323,10 @@ class KKTPrinterApp:
             self.image_path_var.set(filepath)
     
     def connect_to_kkt(self):
-        """Подключение к ККТ"""
+        """Подключение к ККТ с проверкой введенных данных"""
+        if not self.validate_ip_port():
+            return
+            
         try:
             if self.fptr and self.fptr.isOpened():
                 self.fptr.close()
@@ -285,46 +334,44 @@ class KKTPrinterApp:
             self.fptr = IFptr(r"C:\Program Files\ATOL\Drivers10\KKT\bin\fptr10.dll")
             
             settings = {
+                IFptr.LIBFPTR_PARAM_PRINT_FOOTER: False,
                 IFptr.LIBFPTR_SETTING_MODEL: IFptr.LIBFPTR_MODEL_ATOL_AUTO,
                 IFptr.LIBFPTR_SETTING_PORT: IFptr.LIBFPTR_PORT_TCPIP,
-                IFptr.LIBFPTR_SETTING_IPADDRESS: "192.168.101.124",
-                IFptr.LIBFPTR_SETTING_IPPORT: "5555"
+                IFptr.LIBFPTR_SETTING_IPADDRESS: self.ip_address,
+                IFptr.LIBFPTR_SETTING_IPPORT: self.ip_port
             }
             self.fptr.setSettings(settings)
             self.fptr.open()
             
-            # Получаем информацию о ККТ
-            self.fptr.setParam(IFptr.LIBFPTR_PARAM_DATA_TYPE, IFptr.LIBFPTR_DT_STATUS)
-            self.fptr.queryData()
-            
-            kkt_name = self.fptr.getParamString(IFptr.LIBFPTR_PARAM_MODEL_NAME)
-            kkt_version = self.fptr.version()
-            serial_number = self.fptr.getParamString(IFptr.LIBFPTR_PARAM_SERIAL_NUMBER)
-            
-            # Получаем версию прошивки (используем правильную константу)
-            self.fptr.setParam(IFptr.LIBFPTR_PARAM_DATA_TYPE, IFptr.LIBFPTR_DT_UNIT_VERSION)
-            self.fptr.queryData()
-            firmware_version = self.fptr.getParamString(1021)  # Версия прошивки
-            
-            info_text = (
-                f"Модель: {kkt_name}\n"
-                f"Серийный номер: {serial_number}\n"
-                f"Версия драйвера: {kkt_version}\n"
-                f"Версия прошивки: {firmware_version}\n"
-                f"Статус: Подключено"
-            )
-            
-            self.update_kkt_info(info_text)
+            # Обновляем информацию о ККТ
+            self.update_kkt_info()
             self.connection_status.config(text="Подключено", foreground="green")
             
         except Exception as e:
-            error_msg = f"Ошибка подключения к ККТ: {str(e)}"
+            error_msg = f"Ошибка подключения: {str(e)}"
             self.connection_status.config(text=error_msg, foreground="red")
             self.update_kkt_info(error_msg)
             messagebox.showerror("Ошибка подключения", error_msg)
-    
-    def update_kkt_info(self, text):
+
+    def update_kkt_info(self, text=None):
         """Обновление информации о ККТ"""
+        if text is None:
+            try:
+                self.fptr.setParam(IFptr.LIBFPTR_PARAM_DATA_TYPE, IFptr.LIBFPTR_DT_STATUS)
+                self.fptr.queryData()
+                
+                kkt_name = self.fptr.getParamString(IFptr.LIBFPTR_PARAM_MODEL_NAME)
+                serial_number = self.fptr.getParamString(IFptr.LIBFPTR_PARAM_SERIAL_NUMBER)
+                
+                text = (
+                    f"Модель: {kkt_name}\n"
+                    f"Серийный номер: {serial_number}\n"
+                    f"IP: {self.ip_address}:{self.ip_port}\n"
+                    f"Статус: Подключено"
+                )
+            except Exception as e:
+                text = f"Ошибка получения информации: {str(e)}"
+        
         self.kkt_info_text.config(state='normal')
         self.kkt_info_text.delete(1.0, tk.END)
         self.kkt_info_text.insert(tk.END, text)
@@ -357,6 +404,8 @@ class KKTPrinterApp:
             
             # Печатаем текст
             result = self.fptr.printText()
+            self.fptr.setParam(IFptr.LIBFPTR_PARAM_PRINT_FOOTER, False)
+            self.fptr.endNonfiscalDocument()
             if result == 0:
                 messagebox.showinfo("Успех", "Текст успешно отправлен на печать")
             else:
@@ -364,9 +413,6 @@ class KKTPrinterApp:
                 
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка при печати текста: {str(e)}")
-        
-        self.fptr.setParam(IFptr.LIBFPTR_PARAM_PRINT_FOOTER, False)
-        self.fptr.endNonfiscalDocument()
     
     def print_qr(self):
         """Печать QR-кода"""
@@ -459,7 +505,10 @@ class KKTPrinterApp:
             self.fptr.beginNonfiscalDocument()
             # Печатаем текст (если есть)
             if text_to_print:
+                if self.qr_position_var.get() == "right":
+                    self.fptr.setParam(IFptr.LIBFPTR_PARAM_DEFER, IFptr.LIBFPTR_DEFER_OVERLAY)
                 self.fptr.setParam(IFptr.LIBFPTR_PARAM_TEXT, text_to_print)
+                
                 self.fptr.setParam(IFptr.LIBFPTR_PARAM_ALIGNMENT, IFptr.LIBFPTR_ALIGNMENT_LEFT)
                 self.fptr.setParam(IFptr.LIBFPTR_PARAM_TEXT_WRAP, IFptr.LIBFPTR_TW_WORDS)
                 self.fptr.printText()
@@ -477,13 +526,13 @@ class KKTPrinterApp:
                 self.fptr.setParam(IFptr.LIBFPTR_PARAM_SCALE, self.combined_qr_size_var.get())
                 self.fptr.printBarcode()
             
+            self.fptr.setParam(IFptr.LIBFPTR_PARAM_PRINT_FOOTER, False)
+            self.fptr.endNonfiscalDocument()
+            
             messagebox.showinfo("Успех", "Текст и QR-код успешно отправлены на печать")
                 
         except Exception as e:
             messagebox.showerror("Ошибка", f"Ошибка при печати: {str(e)}")
-        
-        self.fptr.setParam(IFptr.LIBFPTR_PARAM_PRINT_FOOTER, False)
-        self.fptr.endNonfiscalDocument()
     
     def on_closing(self):
         """Действия при закрытии окна"""
